@@ -1,5 +1,7 @@
 Validation library for mobx-state-tree
 
+In development. Check tests for examples.
+
 # Features
 
 # Examples
