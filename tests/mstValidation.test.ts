@@ -1,4 +1,5 @@
 import { types } from 'mobx-state-tree';
+import { test, expect } from 'vitest';
 import { validate, rules } from '../src/';
 
 const min = (min: number) =>
