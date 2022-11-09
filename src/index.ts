@@ -1,4 +1,4 @@
-import { getType, IAnyType, Instance, isType, types } from 'mobx-state-tree';
+import { getType, IAnyType, Instance, isArrayType, isType, types } from 'mobx-state-tree';
 
 // union - No type is applicable for the union
 // identifier - Value is not a valid identifier, expected a string
@@ -46,36 +46,49 @@ function getErrors(errors: undefined | any[], errorMessage: string) {
     return [...(errors ?? []), getErrorMessages(errorMessage)].flat().filter(Boolean);
 }
 
-function setError(paths: any, message: any, validationLevel: any, allErrors: any[]) {
+function setError(paths: any, message: any, validationLevel: any) {
     const path = paths[0].path;
+    const type = paths[0].type;
+    if (isArrayType(type)) {
+        validationLevel[path] = [];
+    }
     if (!path && paths.length === 1) {
         const errors = getErrors(validationLevel.errors, message);
         validationLevel.isValid = false;
         validationLevel.errors = errors;
-        allErrors.push(...errors);
     } else if (!path && paths.length > 1) {
-        setError(paths.slice(1), message, validationLevel, allErrors);
+        setError(paths.slice(1), message, validationLevel);
     } else if (paths.length > 1) {
-        validationLevel[path] = validationLevel[path] ?? {};
-        setError(paths.slice(1), message, validationLevel[path], allErrors);
+        if (Array.isArray(validationLevel[path])) {
+            validationLevel[path].push({});
+            setError(paths.slice(1), message, validationLevel[path]);
+        } else {
+            validationLevel[path] = validationLevel[path] ?? {};
+            setError(paths.slice(1), message, validationLevel[path]);
+        }
     } else {
         const errors = getErrors(validationLevel.errors, message);
         validationLevel[path] = { isValid: false, errors };
-        allErrors.push(...errors);
     }
 }
 
-function setValidations(data: any, validations: any) {
+function setValidations(data: any, validations: any = {}): any {
+    if (Array.isArray(data)) {
+        return data.map((d, index) => setValidations(d, validations[index]));
+    }
     if (!isObject(data)) {
         return validations?.errors
             ? { ...validations, value: data }
             : { isValid: true, errors: [], value: data };
     }
-
-    for (let [key] of Object.entries(data)) {
+    for (let [key] of Object.entries(data)) {        
         validations[key] = setValidations(data[key], validations[key]);
     }
     return validations;
+}
+
+function isObject(o: any) {
+    return Object.prototype.toString.call(o) === '[object Object]';
 }
 
 export function validation<T>(validator: IAnyType, error: ((value: T) => string) | string) {
@@ -116,16 +129,37 @@ export function intersection<T>(...validators: IAnyType[]) {
     });
 }
 
-export function validate<T extends IAnyType>(modelOrType: T | Instance<T>, data: any): any {
+type Validation<T> = {
+    isValid: boolean;
+    errors: string[];
+    value: T;
+};
+
+type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
+
+type Validations<T> = Expand<{
+    [K in keyof T]: T[K] extends object ? Expand<Validations<T[K]>> : Expand<Validation<T[K]>>;
+}>;
+
+export function validate<Type extends IAnyType, Data>(
+    modelOrType: Type | Instance<Type>,
+    data: Data
+): {
+    isValid: boolean;
+    errors: string[];
+    validations: Data extends object ? Validations<Data> : Expand<Validation<Data>>;
+} {
     const type = isType(modelOrType) ? modelOrType : getType(modelOrType);
     const mstValidations = type.validate(data, [{ path: '', type }]);
 
-    let validationErrors = {};
-    let errors: any[] = [];
+    let validationErrors: any = {};
+    let errors: string[] = [];
     mstValidations.forEach((v) => {
-        setError(v.context, v.message, validationErrors, errors);
+        setError(v.context, v.message, validationErrors);
+        if (v.message) {
+            errors.push(...getErrors([], v.message));
+        }
     });
-
     const validations = setValidations(data, validationErrors);
 
     return {
@@ -139,7 +173,3 @@ export const rules = {
     validation,
     intersection,
 };
-
-function isObject(o: any) {
-    return Object.prototype.toString.call(o) === '[object Object]';
-}
