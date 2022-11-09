@@ -1,6 +1,6 @@
 import { types } from 'mobx-state-tree';
 import { test, expect } from 'vitest';
-import { validate, rules } from '../src/';
+import { validate, rules, validateType } from '../src/';
 
 const min = (min: number) =>
     types.refinement(
@@ -39,7 +39,8 @@ test('basic validation', () => {
         }));
 
     const m = Model.create({ age: 4, name: 'test', pets: 2 });
-    const { validations, isValid, errors } = validate(m, { age: -2, name: 'kim', pets: 'dog' });
+    
+    const { validations, isValid, errors } = validate(Model, { age: -2, name: 'kim', pets: 'dog' });
     expect(isValid).toBe(false);
     expect(validations.age.isValid).toBe(false);
     expect(validations.age.errors[0]).toBe('Is not a valid age');
@@ -53,7 +54,7 @@ test('nested model', () => {
             l2: types.model({
                 l3: types.model({
                     l4: types.model({
-                        name: rules.validation(types.string, 'name'),
+                        name: rules.validation<string>(types.string, 'name'),
                     }),
                 }),
             }),
@@ -62,7 +63,7 @@ test('nested model', () => {
     });
 
     const m = Model.create({ l1: { l2: { l3: { l4: { name: 'test' } } } } });
-    const { validations, errors } = validate(m, {
+    const { validations, errors } = validate(Model, {
         age: 4,
         l1: { l2: { l3: { l4: { name: 4 } } } },
     });

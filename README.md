@@ -58,7 +58,7 @@ const UserModel = types.model({
 });
 
 const { isValid, errors, validations } = validate(UserModel, {
-    name: Kim,
+    name: 'Kim',
     age: 37,
     interests: 2,
     dogs: [{ name: '', age: 2 }],

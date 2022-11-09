@@ -1,4 +1,15 @@
-import { getType, IAnyType, Instance, isArrayType, isType, types } from 'mobx-state-tree';
+import {
+    getType,
+    IAnyModelType,
+    IAnyType,
+    Instance,
+    isArrayType,
+    isModelType,
+    isType,
+    ModelProperties,
+    SnapshotOut,
+    types,
+} from 'mobx-state-tree';
 
 // union - No type is applicable for the union
 // identifier - Value is not a valid identifier, expected a string
@@ -81,7 +92,7 @@ function setValidations(data: any, validations: any = {}): any {
             ? { ...validations, value: data }
             : { isValid: true, errors: [], value: data };
     }
-    for (let [key] of Object.entries(data)) {        
+    for (let [key] of Object.entries(data)) {
         validations[key] = setValidations(data[key], validations[key]);
     }
     return validations;
@@ -129,27 +140,26 @@ export function intersection<T>(...validators: IAnyType[]) {
     });
 }
 
-type Validation<T> = {
+type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
+
+type Validation<T> = Expand<{
     isValid: boolean;
     errors: string[];
     value: T;
-};
-
-type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
-
-type Validations<T> = Expand<{
-    [K in keyof T]: T[K] extends object ? Expand<Validations<T[K]>> : Expand<Validation<T[K]>>;
 }>;
 
-export function validate<Type extends IAnyType, Data>(
-    modelOrType: Type | Instance<Type>,
+type Validations<T> = Expand<{
+    [K in keyof Omit<T, symbol>]: T[K] extends object ? Expand<Validations<T[K]>> : Validation<T[K]>;
+}>;
+
+export function validate<T extends IAnyType, Data>(
+    type: T,
     data: Data
 ): {
     isValid: boolean;
     errors: string[];
-    validations: Data extends object ? Validations<Data> : Expand<Validation<Data>>;
+    validations: Validations<SnapshotOut<T>>;
 } {
-    const type = isType(modelOrType) ? modelOrType : getType(modelOrType);
     const mstValidations = type.validate(data, [{ path: '', type }]);
 
     let validationErrors: any = {};
