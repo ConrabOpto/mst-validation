@@ -1,6 +1,6 @@
 {
     "name": "mst-validation",
-    "version": "0.2.1",
+    "version": "0.3.0",
     "description": "Validation library for mobx-state-tree",
     "source": "src/index.ts",
     "main": "dist/mst-validation.js",
