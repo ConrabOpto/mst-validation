@@ -1,6 +1,6 @@
 import { types } from 'mobx-state-tree';
 import { test, expect } from 'vitest';
-import { validate, rules } from '../src/';
+import { rules, validateType, withValidation } from '../src/';
 
 const min = (min: number) =>
     types.refinement(
@@ -32,20 +32,21 @@ test('basic validation', () => {
             pets: types.number,
             name: types.string,
         })
+        .extend(withValidation())
         .actions((self) => ({
             setAge(age: number) {
                 self.age = age;
             },
         }));
 
-    const m = Model.create({ age: 4, name: 'test', pets: 2 });
-
-    const { validations, isValid, errors } = validate(Model, { age: -2, name: 'kim', pets: 'dog' });
-    expect(isValid).toBe(false);
-    expect(validations.age.isValid).toBe(false);
-    expect(validations.age.errors[0]).toBe('Is not a valid age');
-    expect(validations.pets.errors[0]).toBe('Value is not a number');
-    expect(errors).toEqual(['Is not a valid age', 'Value is not a number']);
+    const m = Model.create({ age: 4, name: 'test', pets: 2 });   
+    expect(m.validation.isValid).toBe(true);
+    m.validate({ age: -2, name: 'kim', pets: 'dog' });
+    expect(m.validation.isValid).toBe(false);
+    expect(m.validation.fields.age.isValid).toBe(false);
+    expect(m.validation.fields.age.errors[0]).toBe('Is not a valid age');
+    expect(m.validation.fields.pets.errors[0]).toBe('Value is not a number');
+    expect(m.validation.errors).toEqual(['Is not a valid age', 'Value is not a number']);
 });
 
 test('nested model', () => {
@@ -62,21 +63,20 @@ test('nested model', () => {
         age: types.maybe(types.number),
     });
 
-    const m = Model.create({ l1: { l2: { l3: { l4: { name: 'test' } } } } });
-    const { validations, errors } = validate(Model, {
+    const { fields, errors } = validateType(Model, {
         age: 4,
         l1: { l2: { l3: { l4: { name: 4 } } } },
     });
-    expect(validations.l1.l2.l3.l4.name.isValid).toBe(false);
-    expect(validations.l1.l2.l3.l4.name.value).toBe(4);
-    expect(validations.l1.l2.l3.l4.name.errors[0]).toBe('name');
-    expect(validations.age.isValid).toBe(true);
+    expect(fields.l1.l2.l3.l4.name.isValid).toBe(false);
+    expect(fields.l1.l2.l3.l4.name.value).toBe(4);
+    expect(fields.l1.l2.l3.l4.name.errors[0]).toBe('name');
+    expect(fields.age.isValid).toBe(true);
     expect(errors).toEqual(['name']);
 });
 
 test('primitive type', () => {
     const t = types.union(types.string, types.undefined);
-    const union = validate(t, null);
+    const union = validateType(t, null);
     expect(union.isValid).toBe(false);
     expect(union.errors).toEqual([
         'No type is applicable for the union',
@@ -85,7 +85,7 @@ test('primitive type', () => {
     ]);
 
     const i = rules.intersection(minLength(1), maxLength(5));
-    const intersection = validate(i, '2222222222');
+    const intersection = validateType(i, '2222222222');
     expect(intersection.errors[0]).toBe('maxLength');
 });
 
@@ -116,7 +116,7 @@ test('model', () => {
         dog: types.maybe(types.reference(DogModel)),
     });
 
-    const { isValid, errors, validations } = validate(UserModel, {
+    const { isValid, errors, fields } = validateType(UserModel, {
         name: 'Kim',
         age: 37,
         interests: 2,
@@ -142,7 +142,7 @@ test('model', () => {
         'Value is not a literal "Bengal Cat"',
         'Invalid age',
     ]);
-    expect(validations).toEqual({
+    expect(fields).toEqual({
         interests: {
             isValid: false,
             errors: ['Value is not a string'],

@@ -1,6 +1,11 @@
+import { observable } from 'mobx';
 import {
+    getSnapshot,
+    getType,
     IAnyType,
+    Instance,
     isArrayType,
+    IStateTreeNode,
     SnapshotOut,
     types,
 } from 'mobx-state-tree';
@@ -26,7 +31,7 @@ const VALIDATION_IDENTIFIER = '\0Validation';
 const INTERESCTION_IDENTIFIER = '\0IntersectionValidation';
 const INTERSECTION_SEPERATOR = ' & ';
 
-export function getErrorMessages(errorMessage: string): string | string[] {
+function getErrorMessages(errorMessage: string): string | string[] {
     const parse = (error: string) => {
         const match = error.match(/Invalid value for type (.*)/);
         if (match) {
@@ -110,7 +115,7 @@ export function validation<T>(validator: IAnyType, error: ((value: T) => string)
             return false; // always validate
         },
         getValidationMessage(value: T): string {
-            const { isValid } = validate(validator, value);
+            const { isValid } = validateType(validator, value);
             return isValid ? '' : typeof error === 'string' ? error : `${error(value)}`;
         },
     });
@@ -129,7 +134,7 @@ export function intersection<T>(...validators: IAnyType[]) {
             return false; // always validate
         },
         getValidationMessage(value: T): string {
-            const invalid = validators.flatMap((v) => validate(v, value).errors);
+            const invalid = validators.flatMap((v) => validateType(v, value).errors);
             return !invalid.length ? '' : `${invalid.join(INTERSECTION_SEPERATOR)}`;
         },
     });
@@ -143,21 +148,73 @@ type Validation<Type> = Expand<{
     value: Type;
 }>;
 
-type Validations<Type> = Expand<{
+type ValidationObject<Type> = Expand<{
     [Key in keyof Omit<Type, symbol>]: Type[Key] extends Array<infer ArrayType>
-        ? Array<Expand<Validations<ArrayType>>>
+        ? Array<Expand<ValidationObject<ArrayType>>>
         : Type[Key] extends object
-        ? Expand<Validations<Type[Key]>>
+        ? Expand<ValidationObject<Type[Key]>>
         : Validation<Type[Key]>;
 }>;
 
-export function validate<Type extends IAnyType, Data>(
+export type FieldValidations<Type> = ValidationObject<SnapshotOut<Type>>;
+
+export function withValidation<T extends IStateTreeNode>() {
+    return (self: T) => {
+        const validation: any = observable.box(validate(self, getSnapshot(self)));
+        return {
+            views: {
+                get validation(): {
+                    isValid: boolean;
+                    errors: string[];
+                    fields: FieldValidations<typeof self>;
+                } {
+                    return validation.get();
+                },
+            },
+            actions: {
+                validate(data: any) {
+                    validation.set(validate(self, data));
+                },
+            },
+        };
+    };
+}
+
+export function validate<Type extends Instance<IAnyType>, Data>(
+    instance: Type,
+    data: Data
+): {
+    isValid: boolean;
+    errors: string[];
+    fields: FieldValidations<Type>;
+} {
+    const type = getType(instance);
+    const mstValidations = type.validate(data, [{ path: '', type }]);
+
+    let validationErrors: any = {};
+    let errors: string[] = [];
+    mstValidations.forEach((v) => {
+        setError(v.context, v.message, validationErrors);
+        if (v.message) {
+            errors.push(...getErrors([], v.message));
+        }
+    });
+    const fields = setValidations(type, data, validationErrors);
+
+    return {
+        isValid: mstValidations.length ? false : true,
+        fields,
+        errors,
+    };
+}
+
+export function validateType<Type extends IAnyType, Data>(
     type: Type,
     data: Data
 ): {
     isValid: boolean;
     errors: string[];
-    validations: Validations<SnapshotOut<Type>>;
+    fields: FieldValidations<Type>;
 } {
     const mstValidations = type.validate(data, [{ path: '', type }]);
 
@@ -169,11 +226,11 @@ export function validate<Type extends IAnyType, Data>(
             errors.push(...getErrors([], v.message));
         }
     });
-    const validations = setValidations(type, data, validationErrors);
+    const fields = setValidations(type, data, validationErrors);
 
     return {
         isValid: mstValidations.length ? false : true,
-        validations,
+        fields,
         errors,
     };
 }
