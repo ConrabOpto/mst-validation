@@ -102,8 +102,8 @@ function setValidations(type: any, data: any, validations: any = {}): any {
     return validations;
 }
 
-export function validation<T>(validator: IAnyType, error: ((value: T) => string) | string) {
-    return types.custom({
+export function validation<T extends IAnyType>(validator: T, error: ((value: T) => string) | string) {
+    return types.custom<T, T>({
         name: VALIDATION_IDENTIFIER,
         fromSnapshot(value: T) {
             return value;
@@ -118,11 +118,11 @@ export function validation<T>(validator: IAnyType, error: ((value: T) => string)
             const { isValid } = validateType(validator, value);
             return isValid ? '' : typeof error === 'string' ? error : `${error(value)}`;
         },
-    });
+    }) as T;
 }
 
-export function intersection<T>(...validators: IAnyType[]) {
-    return types.custom({
+export function intersection<T extends IAnyType>(...validators: T[]) {
+    return types.custom<T, T>({
         name: INTERESCTION_IDENTIFIER,
         fromSnapshot(value: T) {
             return value;
@@ -137,7 +137,7 @@ export function intersection<T>(...validators: IAnyType[]) {
             const invalid = validators.flatMap((v) => validateType(v, value).errors);
             return !invalid.length ? '' : `${invalid.join(INTERSECTION_SEPERATOR)}`;
         },
-    });
+    }) as T;
 }
 
 type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;

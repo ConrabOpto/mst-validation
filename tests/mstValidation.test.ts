@@ -39,7 +39,7 @@ test('basic validation', () => {
             },
         }));
 
-    const m = Model.create({ age: 4, name: 'test', pets: 2 });   
+    const m = Model.create({ age: 4, name: 'test', pets: 2 });
     expect(m.validation.isValid).toBe(true);
     m.validate({ age: -2, name: 'kim', pets: 'dog' });
     expect(m.validation.isValid).toBe(false);
@@ -55,7 +55,7 @@ test('nested model', () => {
             l2: types.model({
                 l3: types.model({
                     l4: types.model({
-                        name: rules.validation<string>(types.string, 'name'),
+                        name: rules.validation(types.string, 'name'),
                     }),
                 }),
             }),
@@ -110,7 +110,10 @@ test('model', () => {
     const UserModel = types.model({
         name: validators.name,
         age: validators.age,
-        interests: types.string,
+        interests: rules.intersection(
+            types.string,
+            rules.validation(minLength(1), () => 'Not long enough')
+        ),
         dogs: types.array(types.late(() => DogModel)),
         animals: types.array(types.union(CatModel, DogModel)),
         dog: types.maybe(types.reference(DogModel)),
@@ -134,6 +137,7 @@ test('model', () => {
     expect(isValid).toBe(false);
     expect(errors).toEqual([
         'Value is not a string',
+        'Not long enough',
         'Invalid name',
         'No type is applicable for the union',
         'Invalid age',
@@ -145,7 +149,7 @@ test('model', () => {
     expect(fields).toEqual({
         interests: {
             isValid: false,
-            errors: ['Value is not a string'],
+            errors: ['Value is not a string', 'Not long enough'],
             value: 2,
         },
         dogs: [
