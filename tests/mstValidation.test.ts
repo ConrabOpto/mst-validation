@@ -1,6 +1,6 @@
 import { types } from 'mobx-state-tree';
 import { test, expect } from 'vitest';
-import { validate, rules, validateType } from '../src/';
+import { validate, rules } from '../src/';
 
 const min = (min: number) =>
     types.refinement(
@@ -39,7 +39,7 @@ test('basic validation', () => {
         }));
 
     const m = Model.create({ age: 4, name: 'test', pets: 2 });
-    
+
     const { validations, isValid, errors } = validate(Model, { age: -2, name: 'kim', pets: 'dog' });
     expect(isValid).toBe(false);
     expect(validations.age.isValid).toBe(false);
@@ -101,11 +101,19 @@ test('model', () => {
         age: validators.age,
     });
 
+    const CatModel = types.model({
+        name: validators.name,
+        age: validators.age,
+        breed: types.enumeration(['Abyssinian Cat', 'Bengal Cat']),
+    });
+
     const UserModel = types.model({
         name: validators.name,
         age: validators.age,
         interests: types.string,
-        dogs: types.array(DogModel),
+        dogs: types.array(types.late(() => DogModel)),
+        animals: types.array(types.union(CatModel, DogModel)),
+        dog: types.maybe(types.reference(DogModel)),
     });
 
     const { isValid, errors, validations } = validate(UserModel, {
@@ -116,9 +124,24 @@ test('model', () => {
             { name: '', age: 2 },
             { name: 'Eddie', age: 4 },
         ],
+        animals: [
+            { name: 'Mephisto', age: 3, breed: 'Bengal Cat' },
+            { name: 'Catdog', breed: 'Golden retriever' },
+            { name: 'Eddie', age: 4 },
+        ],
     });
+
     expect(isValid).toBe(false);
-    expect(errors).toEqual(['Value is not a string', 'Invalid name']);
+    expect(errors).toEqual([
+        'Value is not a string',
+        'Invalid name',
+        'No type is applicable for the union',
+        'Invalid age',
+        'No type is applicable for the union',
+        'Value is not a literal "Abyssinian Cat"',
+        'Value is not a literal "Bengal Cat"',
+        'Invalid age',
+    ]);
     expect(validations).toEqual({
         interests: {
             isValid: false,
@@ -160,6 +183,27 @@ test('model', () => {
             isValid: true,
             errors: [],
             value: 37,
+        },
+        animals: [
+            {
+                name: { isValid: true, errors: [], value: 'Mephisto' },
+                age: { isValid: true, errors: [], value: 3 },
+                breed: { isValid: true, errors: [], value: 'Bengal Cat' },
+            },
+            {
+                age: { isValid: false, errors: ['Invalid age'], value: undefined },
+                name: { isValid: true, errors: [], value: 'Catdog' },
+                breed: { isValid: true, errors: [], value: 'Golden retriever' },
+            },
+            {
+                name: { isValid: true, errors: [], value: 'Eddie' },
+                age: { isValid: true, errors: [], value: 4 },
+            },
+        ],
+        dog: {
+            isValid: true,
+            errors: [],
+            value: undefined,
         },
     });
 });
