@@ -12,33 +12,25 @@ A validation library for mobx-state-tree.
 
 # Usage
 
-## withValidation
-
-Adds `validate` and `validations` to a model.
+## createValidator
 
 ```tsx
 const UserModel = types
     .model({
         name: types.string,
         age: types.number,
-    })
-    .extend(withValidation());
-
-const userModel = UserModel.create({
-    name: 'Kim',
-    age: 37,
-});
+    });
 
 export default observer(function App() {
-    const [name, setName] = useState(userModel.name);
-    const [age, setAge] = useState(userModel.age);
+    const [validator] = useState(() => createValidator(UserModel));
+    const [name, setName] = useState('');
+    const [age, setAge] = useState('');
     const validateUser = () => {
-        userModel.validate({
+        validator.validate({
             name: name,
             age: parseInt(age, 10),
         });
     };
-    const { validation } = userModel;
     return (
         <div>
             <div>
@@ -48,8 +40,8 @@ export default observer(function App() {
                     onChange={(ev) => setName(ev.target.value)}
                     onBlur={() => validateUser()}
                 />
-                {!validation.fields.name.isValid && (
-                    <div style={{ color: 'red' }}>{validation.fields.name.errors[0]}</div>
+                {!validator.fields.name.isValid && (
+                    <div style={{ color: 'red' }}>{validator.fields.name.errors[0]}</div>
                 )}
             </div>
             <div>
@@ -59,8 +51,8 @@ export default observer(function App() {
                     onChange={(ev) => setAge(ev.target.value)}
                     onBlur={() => validateUser()}
                 />
-                {!validation.fields.age.isValid && (
-                    <div style={{ color: 'red' }}>{validation.fields.age.errors[0]}</div>
+                {!validator.fields.age.isValid && (
+                    <div style={{ color: 'red' }}>{validator.fields.age.errors[0]}</div>
                 )}
             </div>
         </div>
@@ -99,8 +91,7 @@ expect(errors[0]).toBe('maxLength');
 const min = (min: number) =>
     types.refinement(
         types.number,
-        (v) => v >= min,
-        () => 'minCount'
+        (v) => v >= min
     );
 
 const validators = {

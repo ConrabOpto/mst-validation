@@ -97,7 +97,7 @@ function setValidations(type: any, data: any, validations: any = {}): any {
             : { isValid: true, errors: [], value: data };
     }
     for (let [key] of Object.entries(type.properties)) {
-        validations[key] = setValidations(type.properties[key], data[key], validations[key]);
+        validations[key] = setValidations(type.properties[key], data?.[key], validations[key]);
     }
     return validations;
 }
@@ -158,28 +158,6 @@ type ValidationObject<Type> = Expand<{
 
 export type FieldValidations<Type> = ValidationObject<SnapshotOut<Type>>;
 
-export function withValidation<T extends IStateTreeNode>() {
-    return (self: T) => {
-        const validation: any = observable.box(validate(self, getSnapshot(self)));
-        return {
-            views: {
-                get validation(): {
-                    isValid: boolean;
-                    errors: string[];
-                    fields: FieldValidations<typeof self>;
-                } {
-                    return validation.get();
-                },
-            },
-            actions: {
-                validate(data: any) {
-                    validation.set(validate(self, data));
-                },
-            },
-        };
-    };
-}
-
 export function validate<Type extends Instance<IAnyType>, Data>(
     instance: Type,
     data: Data
@@ -233,6 +211,28 @@ export function validateType<Type extends IAnyType, Data>(
         fields,
         errors,
     };
+}
+
+
+export function createValidator<Type extends IAnyType>(type: Type, initialData?: any) {
+    const validations = observable.box(validateType(type, initialData));
+    return observable({
+        get fields() {
+            return validations.get().fields;
+        },
+        get isValid() {
+            return validations.get().isValid;
+        },
+        get errors() {
+            return validations.get().errors;
+        },
+        validate(data: any) {
+            validations.set(validateType(type, data));
+        },
+        reset() {
+            validations.set(validateType(type, initialData));
+        }
+    });
 }
 
 export const rules = {

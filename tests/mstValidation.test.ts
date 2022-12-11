@@ -1,6 +1,6 @@
 import { types } from 'mobx-state-tree';
 import { test, expect } from 'vitest';
-import { rules, validateType, withValidation } from '../src/';
+import { createValidator, rules, validateType } from '../src/';
 
 const min = (min: number) =>
     types.refinement(
@@ -32,21 +32,20 @@ test('basic validation', () => {
             pets: types.number,
             name: types.string,
         })
-        .extend(withValidation())
         .actions((self) => ({
             setAge(age: number) {
                 self.age = age;
             },
         }));
 
-    const m = Model.create({ age: 4, name: 'test', pets: 2 });
-    expect(m.validation.isValid).toBe(true);
-    m.validate({ age: -2, name: 'kim', pets: 'dog' });
-    expect(m.validation.isValid).toBe(false);
-    expect(m.validation.fields.age.isValid).toBe(false);
-    expect(m.validation.fields.age.errors[0]).toBe('Is not a valid age');
-    expect(m.validation.fields.pets.errors[0]).toBe('Value is not a number');
-    expect(m.validation.errors).toEqual(['Is not a valid age', 'Value is not a number']);
+    const validator = createValidator(Model);
+    expect(validator.isValid).toBe(false);
+    validator.validate({ age: -2, name: 'kim', pets: 'dog' });
+    expect(validator.isValid).toBe(false);
+    expect(validator.fields.age.isValid).toBe(false);
+    expect(validator.fields.age.errors[0]).toBe('Is not a valid age');
+    expect(validator.fields.pets.errors[0]).toBe('Value is not a number');
+    expect(validator.errors).toEqual(['Is not a valid age', 'Value is not a number']);
 });
 
 test('nested model', () => {
@@ -87,6 +86,13 @@ test('primitive type', () => {
     const i = rules.intersection(minLength(1), maxLength(5));
     const intersection = validateType(i, '2222222222');
     expect(intersection.errors[0]).toBe('maxLength');
+
+    const i2 = rules.intersection(
+        rules.validation(types.string, 'Not a valid string'),
+        minLength(1)
+    );
+    const intersection2 = validateType(i2, 4);
+    expect(intersection2.errors.length).toBe(2);
 });
 
 test('model', () => {
