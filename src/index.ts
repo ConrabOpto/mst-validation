@@ -1,15 +1,5 @@
-import { observable } from 'mobx';
-import {
-    getSnapshot,
-    getType,
-    IAnyType,
-    Instance,
-    isArrayType,
-    IStateTreeNode,
-    SnapshotOut,
-    types,
-} from 'mobx-state-tree';
-import { getSubType } from './utils';
+import { IAnyType, types } from 'mobx-state-tree';
+import { IValidationError } from 'mobx-state-tree/dist/internal';
 
 // union - No type is applicable for the union
 // identifier - Value is not a valid identifier, expected a string
@@ -27,98 +17,111 @@ import { getSubType } from './utils';
 // literal - Value is not a literal
 // map - Value is not a plain object
 
-const VALIDATION_IDENTIFIER = '\0Validation';
 const INTERESCTION_IDENTIFIER = '\0IntersectionValidation';
 const INTERSECTION_SEPERATOR = ' & ';
+const CUSTOM_ERROR = 'Invalid value for type ';
 
-function getErrorMessages(errorMessage: string): string | string[] {
-    const parse = (error: string) => {
-        const match = error.match(/Invalid value for type (.*)/);
-        if (match) {
-            return match[1].split(':')[1].trim();
-        }
+export const validationIssueCode = {
+    undefined: { code: 'undefined', message: 'Value is not a undefined' },
+    null: { code: 'null', message: 'Value is not a null' },
+    number: { code: 'number', message: 'Value is not a number' },
+    string: { code: 'string', message: 'Value is not a string' },
+    integer: { code: 'integer', message: 'Value is not a integer' },
+    Date: { code: 'Date', message: 'Value is not a Date or unix milliseconds timestamp' },
+    array: { code: 'Array', message: 'Value is not an array' },
+    boolean: { code: 'boolean', message: 'Value is not a boolean' },
+    enumeration: { code: 'enumeration', message: 'Value is not a literal' },
+    literal: { code: 'literal', message: 'Value is not a literal' },
+    map: { code: 'map', message: 'Value is not a plain object' },
+    union: { code: 'union', message: 'No type is applicable for the union' },
+    intersection: { code: 'intersection', message: 'Not all types match the intersection' },
+    identifier: {
+        code: 'identifier',
+        message: 'Value is not a valid identifier, expected a string',
+    },
+    identifierNumber: {
+        code: 'identifierNumber',
+        message: 'Value is not a valid identifierNumber, expected a number',
+    },
+} as const;
+
+type ValidationIssueCodeType = typeof validationIssueCode[keyof typeof validationIssueCode];
+
+type ValidationIssue = {
+    code: string | ValidationIssueCodeType;
+    path: (string | number)[];
+    message: string;
+    value: any;
+};
+
+type ValidationError = {
+    issues: ValidationIssue[];
+};
+
+function parseErrorMessage(errorMessage: string | undefined) {
+    if (!errorMessage) {
         return '';
-    };
-
-    const intersection = errorMessage.includes(INTERESCTION_IDENTIFIER);
-    if (intersection) {
-        return parse(errorMessage).split(INTERSECTION_SEPERATOR);
     }
-
-    const validation = errorMessage.includes(VALIDATION_IDENTIFIER);
-    if (validation) {
-        return parse(errorMessage);
+    const match = errorMessage.match(new RegExp(`${CUSTOM_ERROR}(.*)`));
+    if (match) {
+        return match[1].split(':')[1].trim();
     }
-
-    return errorMessage;
+    return '';
 }
 
-function getErrors(errors: undefined | any[], errorMessage: string) {
-    return [...(errors ?? []), getErrorMessages(errorMessage)].flat().filter(Boolean);
-}
+function getErrors(error: IValidationError): ValidationIssue[] {
+    const path = error.context.map((c) => c.path).filter(Boolean);
+    const value = error.value;
 
-function setError(paths: any, message: any, validationLevel: any) {
-    const path = paths[0].path;
-    const type = paths[0].type;
-    if (isArrayType(type)) {
-        validationLevel[path] = [];
+    let errorMessage = error.message ?? '';
+    if (errorMessage.includes(INTERESCTION_IDENTIFIER)) {
+        const errorMessages = parseErrorMessage(error.message).split(INTERSECTION_SEPERATOR);
+        return [
+            {
+                path,
+                value,
+                code: validationIssueCode.intersection.code,
+                message: validationIssueCode.intersection.message,
+            },
+            {
+                path,
+                value,
+                code:
+                    Object.values(validationIssueCode).find((v) =>
+                        errorMessages[0].startsWith(v.message)
+                    )?.code ?? errorMessages[0],
+                message: errorMessages[0],
+            },
+            ...(errorMessages.length > 1
+                ? [
+                      {
+                          path,
+                          value,
+                          code:
+                              Object.values(validationIssueCode).find((v) =>
+                                  errorMessages[1].startsWith(v.message)
+                              )?.code ?? errorMessages[1],
+                          message: errorMessages[1],
+                      },
+                  ]
+                : []),
+        ];
     }
-    if (!path && paths.length === 1) {
-        const errors = getErrors(validationLevel.errors, message);
-        validationLevel.isValid = false;
-        validationLevel.errors = errors;
-    } else if (!path && paths.length > 1) {
-        setError(paths.slice(1), message, validationLevel);
-    } else if (paths.length > 1) {
-        if (Array.isArray(validationLevel[path])) {
-            validationLevel[path].push({});
-            setError(paths.slice(1), message, validationLevel[path]);
-        } else {
-            validationLevel[path] = validationLevel[path] ?? {};
-            setError(paths.slice(1), message, validationLevel[path]);
-        }
-    } else {
-        const errors = getErrors(validationLevel.errors, message);
-        validationLevel[path] = { isValid: false, errors };
-    }
-}
 
-function setValidations(type: any, data: any, validations: any = {}): any {
-    if (isArrayType(type)) {
-        return !Array.isArray(data)
-            ? []
-            : data.map((d: any, index: any) =>
-                  setValidations(getSubType(type, d), d, validations[index])
-              );
+    if (errorMessage.includes(CUSTOM_ERROR)) {
+        errorMessage = parseErrorMessage(error.message);
     }
-    if (!type.properties) {
-        return validations?.errors
-            ? { ...validations, value: data }
-            : { isValid: true, errors: [], value: data };
-    }
-    for (let [key] of Object.entries(type.properties)) {
-        validations[key] = setValidations(type.properties[key], data?.[key], validations[key]);
-    }
-    return validations;
-}
 
-export function validation<T extends IAnyType>(validator: T, error: ((value: T) => string) | string) {
-    return types.custom<T, T>({
-        name: VALIDATION_IDENTIFIER,
-        fromSnapshot(value: T) {
-            return value;
+    return [
+        {
+            path,
+            value,
+            code:
+                Object.values(validationIssueCode).find((v) => errorMessage.startsWith(v.message))
+                    ?.code ?? errorMessage,
+            message: errorMessage,
         },
-        toSnapshot(value: T) {
-            return value;
-        },
-        isTargetType(value: T) {
-            return false; // always validate
-        },
-        getValidationMessage(value: T): string {
-            const { isValid } = validateType(validator, value);
-            return isValid ? '' : typeof error === 'string' ? error : `${error(value)}`;
-        },
-    }) as T;
+    ];
 }
 
 export function intersection<T extends IAnyType>(...validators: T[]) {
@@ -134,108 +137,42 @@ export function intersection<T extends IAnyType>(...validators: T[]) {
             return false; // always validate
         },
         getValidationMessage(value: T): string {
-            const invalid = validators.flatMap((v) => validateType(v, value).errors);
+            const invalid = validators.flatMap((v) => {
+                const result = validate(v, value);
+                return result.success ? [] : result.error.issues.map((i) => i.message);
+            });
             return !invalid.length ? '' : `${invalid.join(INTERSECTION_SEPERATOR)}`;
         },
     }) as T;
 }
 
-type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
-
-type Validation<Type> = Expand<{
-    isValid: boolean;
-    errors: string[];
-    value: Type;
-}>;
-
-type ValidationObject<Type> = Expand<{
-    [Key in keyof Omit<Type, symbol>]: Type[Key] extends Array<infer ArrayType>
-        ? Array<Expand<ValidationObject<ArrayType>>>
-        : Type[Key] extends object
-        ? Expand<ValidationObject<Type[Key]>>
-        : Validation<Type[Key]>;
-}>;
-
-export type FieldValidations<Type> = ValidationObject<SnapshotOut<Type>>;
-
-export function validate<Type extends Instance<IAnyType>, Data>(
-    instance: Type,
-    data: Data
-): {
-    isValid: boolean;
-    errors: string[];
-    fields: FieldValidations<Type>;
-} {
-    const type = getType(instance);
-    const mstValidations = type.validate(data, [{ path: '', type }]);
-
-    let validationErrors: any = {};
-    let errors: string[] = [];
-    mstValidations.forEach((v) => {
-        setError(v.context, v.message, validationErrors);
-        if (v.message) {
-            errors.push(...getErrors([], v.message));
-        }
-    });
-    const fields = setValidations(type, data, validationErrors);
-
-    return {
-        isValid: mstValidations.length ? false : true,
-        fields,
-        errors,
-    };
-}
-
-export function validateType<Type extends IAnyType, Data>(
+export function validate<Type extends IAnyType, Data>(
     type: Type,
     data: Data
-): {
-    isValid: boolean;
-    errors: string[];
-    fields: FieldValidations<Type>;
-} {
+):
+    | {
+          success: true;
+          data: Data;
+      }
+    | { success: false; error: ValidationError } {
     const mstValidations = type.validate(data, [{ path: '', type }]);
-
-    let validationErrors: any = {};
-    let errors: string[] = [];
-    mstValidations.forEach((v) => {
-        setError(v.context, v.message, validationErrors);
-        if (v.message) {
-            errors.push(...getErrors([], v.message));
-        }
-    });
-    const fields = setValidations(type, data, validationErrors);
-
-    return {
-        isValid: mstValidations.length ? false : true,
-        fields,
-        errors,
-    };
-}
-
-
-export function createValidator<Type extends IAnyType>(type: Type, initialData?: any) {
-    const validations = observable.box(validateType(type, initialData));
-    return observable({
-        get fields() {
-            return validations.get().fields;
-        },
-        get isValid() {
-            return validations.get().isValid;
-        },
-        get errors() {
-            return validations.get().errors;
-        },
-        validate(data: any) {
-            validations.set(validateType(type, data));
-        },
-        reset() {
-            validations.set(validateType(type, initialData));
-        }
-    });
+    const issues = mstValidations.flatMap((v) => [...getErrors(v)]);
+    if (!mstValidations.length) {
+        return {
+            success: true,
+            data,
+        };
+    } else {
+        return {
+            success: false,
+            error: {
+                issues,
+            },
+        };
+    }
 }
 
 export const rules = {
-    validation,
+    code: validationIssueCode,
     intersection,
 };

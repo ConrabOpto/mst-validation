@@ -1,13 +1,7 @@
-import { types } from 'mobx-state-tree';
 import { test, expect } from 'vitest';
-import { createValidator, rules, validateType } from '../src/';
+import { types } from 'mobx-state-tree';
+import { validate, rules, validationIssueCode } from '../src/';
 
-const min = (min: number) =>
-    types.refinement(
-        types.number,
-        (v) => v >= min,
-        () => 'min'
-    );
 const minLength = (min: number) =>
     types.refinement(
         types.string,
@@ -21,13 +15,17 @@ const maxLength = (max: number) =>
         () => 'maxLength'
     );
 
+function isFalse(value: boolean): asserts value is false {
+    expect(value).toBe(false);
+}
+
 test('basic validation', () => {
     const Model = types
         .model({
             age: types.refinement(
                 types.number,
                 (v) => v > 0,
-                () => 'Is not a valid age'
+                () => 'age'
             ),
             pets: types.number,
             name: types.string,
@@ -38,14 +36,10 @@ test('basic validation', () => {
             },
         }));
 
-    const validator = createValidator(Model);
-    expect(validator.isValid).toBe(false);
-    validator.validate({ age: -2, name: 'kim', pets: 'dog' });
-    expect(validator.isValid).toBe(false);
-    expect(validator.fields.age.isValid).toBe(false);
-    expect(validator.fields.age.errors[0]).toBe('Is not a valid age');
-    expect(validator.fields.pets.errors[0]).toBe('Value is not a number');
-    expect(validator.errors).toEqual(['Is not a valid age', 'Value is not a number']);
+    const result = validate(Model, { age: -2, name: 'kim', pets: 'dog' });
+    isFalse(result.success);
+    expect(result.error.issues[0].code).toBe('age');
+    expect(result.error.issues[1].code).toBe('number');
 });
 
 test('nested model', () => {
@@ -54,7 +48,7 @@ test('nested model', () => {
             l2: types.model({
                 l3: types.model({
                     l4: types.model({
-                        name: rules.validation(types.string, 'name'),
+                        name: types.string
                     }),
                 }),
             }),
@@ -62,73 +56,64 @@ test('nested model', () => {
         age: types.maybe(types.number),
     });
 
-    const { fields, errors } = validateType(Model, {
+    const result = validate(Model, {
         age: 4,
         l1: { l2: { l3: { l4: { name: 4 } } } },
     });
-    expect(fields.l1.l2.l3.l4.name.isValid).toBe(false);
-    expect(fields.l1.l2.l3.l4.name.value).toBe(4);
-    expect(fields.l1.l2.l3.l4.name.errors[0]).toBe('name');
-    expect(fields.age.isValid).toBe(true);
-    expect(errors).toEqual(['name']);
+    isFalse(result.success);
+    expect(result.error.issues[0].path).toEqual(['l1', 'l2', 'l3', 'l4', 'name']);
 });
 
 test('primitive type', () => {
     const t = types.union(types.string, types.undefined);
-    const union = validateType(t, null);
-    expect(union.isValid).toBe(false);
-    expect(union.errors).toEqual([
-        'No type is applicable for the union',
-        'Value is not a string',
-        'Value is not a undefined',
+    const union = validate(t, null);
+    isFalse(union.success);
+    expect(union.error.issues.map(i => i.code)).toEqual([
+        validationIssueCode.union.code,
+        validationIssueCode.string.code,
+        validationIssueCode.undefined.code
     ]);
 
     const i = rules.intersection(minLength(1), maxLength(5));
-    const intersection = validateType(i, '2222222222');
-    expect(intersection.errors[0]).toBe('maxLength');
+    const intersection = validate(i, '2222222222');
+    isFalse(intersection.success);
+    expect(intersection.error.issues.map(i => i.code)).toEqual([
+        'intersection',
+        'maxLength'
+    ]);
 
-    const i2 = rules.intersection(
-        rules.validation(types.string, 'Not a valid string'),
-        minLength(1)
-    );
-    const intersection2 = validateType(i2, 4);
-    expect(intersection2.errors.length).toBe(2);
+    const i2 = rules.intersection(types.string, minLength(1));
+    const intersection2 = validate(i2, 4);
+    isFalse(intersection2.success);
+    expect(intersection2.error.issues.length).toBe(3);
 });
 
 test('model', () => {
-    const validators = {
-        name: rules.validation(minLength(1), () => 'Invalid name'),
-        age: rules.validation(min(0), () => 'Invalid age'),
-    };
-
     // Validate models
     const DogModel = types.model({
-        name: validators.name,
-        age: validators.age,
+        name: types.string,
+        age: types.number,
     });
 
     const CatModel = types.model({
-        name: validators.name,
-        age: validators.age,
+        name: types.string,
+        age: types.number,
         breed: types.enumeration(['Abyssinian Cat', 'Bengal Cat']),
     });
 
     const UserModel = types.model({
-        name: validators.name,
-        age: validators.age,
-        interests: rules.intersection(
-            types.string,
-            rules.validation(minLength(1), () => 'Not long enough')
-        ),
+        name: types.string,
+        age: types.number,
+        interests: rules.intersection(types.string, minLength(1)),
         dogs: types.array(types.late(() => DogModel)),
         animals: types.array(types.union(CatModel, DogModel)),
         dog: types.maybe(types.reference(DogModel)),
     });
 
-    const { isValid, errors, fields } = validateType(UserModel, {
+    const result = validate(UserModel, {
         name: 'Kim',
         age: 37,
-        interests: 2,
+        interests: '',
         dogs: [
             { name: '', age: 2 },
             { name: 'Eddie', age: 4 },
@@ -140,80 +125,54 @@ test('model', () => {
         ],
     });
 
-    expect(isValid).toBe(false);
-    expect(errors).toEqual([
-        'Value is not a string',
-        'Not long enough',
-        'Invalid name',
-        'No type is applicable for the union',
-        'Invalid age',
-        'No type is applicable for the union',
-        'Value is not a literal "Abyssinian Cat"',
-        'Value is not a literal "Bengal Cat"',
-        'Invalid age',
-    ]);
-    expect(fields).toEqual({
-        interests: {
-            isValid: false,
-            errors: ['Value is not a string', 'Not long enough'],
-            value: 2,
+    expect(result.success).toBe(false);
+    if (result.success) {
+        return;
+    }
+    expect(result.error.issues[0].code).toBe(validationIssueCode.intersection.code);
+});
+
+test('Custom Date', () => {
+    const CustomDate = types.custom<string, Date | string>({
+        name: 'CustomDate',
+        fromSnapshot(value) {
+            const d =
+                /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2}(?:\.\d*)?)(?:([\+-])(\d{2})\:(\d{2}))?Z?$/.exec(
+                    value
+                ) as any[];
+            return new Date(d[1], d[2] - 1, d[3], d[4], d[5], d[6]);
         },
-        dogs: [
-            {
-                name: {
-                    isValid: false,
-                    errors: ['Invalid name'],
-                    value: '',
-                },
-                age: {
-                    isValid: true,
-                    errors: [],
-                    value: 2,
-                },
-            },
-            {
-                name: {
-                    isValid: true,
-                    errors: [],
-                    value: 'Eddie',
-                },
-                age: {
-                    isValid: true,
-                    errors: [],
-                    value: 4,
-                },
-            },
-        ],
-        name: {
-            isValid: true,
-            errors: [],
-            value: 'Kim',
+        toSnapshot(value: Date) {
+            if (value === undefined || value === null) {
+                return value;
+            }
+            const tzoffset = value.getTimezoneOffset() * 60000;
+            const localISOTime = new Date(value.getTime() - tzoffset).toISOString().slice(0, -1);
+            return localISOTime;
         },
-        age: {
-            isValid: true,
-            errors: [],
-            value: 37,
+        isTargetType(v: string | Date): boolean {
+            return v instanceof Date;
         },
-        animals: [
-            {
-                name: { isValid: true, errors: [], value: 'Mephisto' },
-                age: { isValid: true, errors: [], value: 3 },
-                breed: { isValid: true, errors: [], value: 'Bengal Cat' },
-            },
-            {
-                age: { isValid: false, errors: ['Invalid age'], value: undefined },
-                name: { isValid: true, errors: [], value: 'Catdog' },
-                breed: { isValid: true, errors: [], value: 'Golden retriever' },
-            },
-            {
-                name: { isValid: true, errors: [], value: 'Eddie' },
-                age: { isValid: true, errors: [], value: 4 },
-            },
-        ],
-        dog: {
-            isValid: true,
-            errors: [],
-            value: undefined,
+        getValidationMessage(value: string) {
+            const d =
+                /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2}(?:\.\d*)?)(?:([\+-])(\d{2})\:(\d{2}))?Z?$/.exec(
+                    value
+                ) as any[];
+            if (d) {
+                return '';
+            }
+            return 'Not a correct date';
         },
     });
+
+    const DateModel = types.model({
+        date: CustomDate,
+    });
+
+    const result = validate(DateModel, { date: 2 });
+    expect(result.success).toBe(false);
+    if (result.success) {
+        return;
+    }
+    expect(result.error.issues[0].code).toBe('Not a correct date');
 });
