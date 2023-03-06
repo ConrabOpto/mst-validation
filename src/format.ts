@@ -1,78 +1,34 @@
-// TODO: Format output
+import { isObservableArray } from 'mobx';
+import type { ValidationIssue, FormattedError } from '.';
 
-// type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
+function formatter(obj: any, paths: (string | number)[], result: any, issue: any): any {
+    if (isObject(obj) && paths.length <= 1) {
+        result._errors = [...(result._errors ?? []), issue];
+        return;
+    }
+    
+    const value = obj[paths[0]];
+    if (isArray(value)) {
+        result[paths[0]] = new Array(value.length).fill(undefined);
+    } else if (isObject(value)) {
+        result[paths[0]] = {};
+    }
 
-// type Validation<Type> = Expand<{
-//     isValid: boolean;
-//     errors: string[];
-//     value: Type;
-// }>;
+    return formatter(value, paths.slice(1), result[paths[0]], issue);
+}
 
-// type ValidationObject<Type> = Expand<{
-//     [Key in keyof Omit<Type, symbol>]: Type[Key] extends Array<infer ArrayType>
-//         ? Array<Expand<ValidationObject<ArrayType>>>
-//         : Type[Key] extends object
-//         ? Expand<ValidationObject<Type[Key]>>
-//         : Validation<Type[Key]>;
-// }>;
+export function format<T>(data: T, issues: ValidationIssue[]): FormattedError<T> {
+    let result: any = {};
+    for (let issue of issues) {
+        formatter(data, issue.path, result, issue);
+    }
+    return result;
+}
 
-// export type FieldValidations<Type> = ValidationObject<SnapshotOut<Type>>;
+function isArray(a: any) {
+    return Array.isArray(a) || isObservableArray(a);
+}
 
-// let validationErrors: any = {};
-// let errors: string[] = [];
-// mstValidations.forEach((v) => {
-//     setError(v.context, v.message, validationErrors);
-//     if (v.message) {
-//         errors.push(...getErrors([], v.message));
-//     }
-// });
-// const fields = setValidations(type, data, validationErrors);
-
-// function getErrors(errors: undefined | any[], errorMessage: string) {
-//     return [...(errors ?? []), getErrorMessages(errorMessage)].flat().filter(Boolean);
-// }
-
-// function setError(paths: any, message: any, validationLevel: any) {
-//     const path = paths[0].path;
-//     const type = paths[0].type;
-//     if (isArrayType(type)) {
-//         validationLevel[path] = [];
-//     }
-//     if (!path && paths.length === 1) {
-//         const errors = getErrors(validationLevel.errors, message);
-//         validationLevel.isValid = false;
-//         validationLevel.errors = errors;
-//     } else if (!path && paths.length > 1) {
-//         setError(paths.slice(1), message, validationLevel);
-//     } else if (paths.length > 1) {
-//         if (Array.isArray(validationLevel[path])) {
-//             validationLevel[path].push({});
-//             setError(paths.slice(1), message, validationLevel[path]);
-//         } else {
-//             validationLevel[path] = validationLevel[path] ?? {};
-//             setError(paths.slice(1), message, validationLevel[path]);
-//         }
-//     } else {
-//         const errors = getErrors(validationLevel.errors, message);
-//         validationLevel[path] = { isValid: false, errors };
-//     }
-// }
-
-// function setValidations(type: any, data: any, validations: any = {}): any {
-//     if (isArrayType(type)) {
-//         return !Array.isArray(data)
-//             ? []
-//             : data.map((d: any, index: any) =>
-//                   setValidations(getSubType(type, d), d, validations[index])
-//               );
-//     }
-//     if (!type.properties) {
-//         return validations?.errors
-//             ? { ...validations, value: data }
-//             : { isValid: true, errors: [], value: data };
-//     }
-//     for (let [key] of Object.entries(type.properties)) {
-//         validations[key] = setValidations(type.properties[key], data?.[key], validations[key]);
-//     }
-//     return validations;
-// }
+export function isObject(a: any) {
+    return a && typeof a === 'object' && !isArray(a);
+}

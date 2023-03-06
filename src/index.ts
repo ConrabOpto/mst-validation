@@ -1,5 +1,6 @@
 import { IAnyType, types } from 'mobx-state-tree';
 import { IValidationError } from 'mobx-state-tree/dist/internal';
+import { format } from './format';
 
 // union - No type is applicable for the union
 // identifier - Value is not a valid identifier, expected a string
@@ -47,15 +48,28 @@ export const validationIssueCode = {
 
 type ValidationIssueCodeType = typeof validationIssueCode[keyof typeof validationIssueCode];
 
-type ValidationIssue = {
+export type ValidationIssue = {
     code: string | ValidationIssueCodeType;
     path: (string | number)[];
     message: string;
     value: any;
 };
 
-type ValidationError = {
+type recursiveFormattedError<T> = T extends [any, ...any[]]
+  ? { [K in keyof T]?: FormattedError<T[K]> }
+  : T extends any[]
+  ? { [k: number]: FormattedError<T[number]> }
+  : T extends object
+  ? { [K in keyof T]?: FormattedError<T[K]> }
+  : unknown;
+
+export type FormattedError<T> = {
+  _errors: ValidationIssue[];
+} & recursiveFormattedError<NonNullable<T>>;
+
+type ValidationError<Data> = {
     issues: ValidationIssue[];
+    format: () => FormattedError<Data>
 };
 
 function parseErrorMessage(errorMessage: string | undefined) {
@@ -138,7 +152,7 @@ export function intersection<T extends IAnyType>(...validators: T[]) {
         },
         getValidationMessage(value: T): string {
             const invalid = validators.flatMap((v) => {
-                const result = validate(v, value);
+                const result = parse(v, value);
                 return result.success ? [] : result.error.issues.map((i) => i.message);
             });
             return !invalid.length ? '' : `${invalid.join(INTERSECTION_SEPERATOR)}`;
@@ -146,7 +160,7 @@ export function intersection<T extends IAnyType>(...validators: T[]) {
     }) as T;
 }
 
-export function validate<Type extends IAnyType, Data>(
+export function parse<Type extends IAnyType, Data>(
     type: Type,
     data: Data
 ):
@@ -154,9 +168,10 @@ export function validate<Type extends IAnyType, Data>(
           success: true;
           data: Data;
       }
-    | { success: false; error: ValidationError } {
+    | { success: false; error: ValidationError<Data> } {
     const mstValidations = type.validate(data, [{ path: '', type }]);
     const issues = mstValidations.flatMap((v) => [...getErrors(v)]);
+
     if (!mstValidations.length) {
         return {
             success: true,
@@ -167,6 +182,7 @@ export function validate<Type extends IAnyType, Data>(
             success: false,
             error: {
                 issues,
+                format: () => format(data, issues)
             },
         };
     }

@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 import { types } from 'mobx-state-tree';
-import { validate, rules, validationIssueCode } from '../src/';
+import { parse, rules, validationIssueCode } from '../src/';
 
 const minLength = (min: number) =>
     types.refinement(
@@ -36,7 +36,7 @@ test('basic validation', () => {
             },
         }));
 
-    const result = validate(Model, { age: -2, name: 'kim', pets: 'dog' });
+    const result = parse(Model, { age: -2, name: 'kim', pets: 'dog' });
     isFalse(result.success);
     expect(result.error.issues[0].code).toBe('age');
     expect(result.error.issues[1].code).toBe('number');
@@ -56,7 +56,7 @@ test('nested model', () => {
         age: types.maybe(types.number),
     });
 
-    const result = validate(Model, {
+    const result = parse(Model, {
         age: 4,
         l1: { l2: { l3: { l4: { name: 4 } } } },
     });
@@ -66,7 +66,7 @@ test('nested model', () => {
 
 test('primitive type', () => {
     const t = types.union(types.string, types.undefined);
-    const union = validate(t, null);
+    const union = parse(t, null);
     isFalse(union.success);
     expect(union.error.issues.map(i => i.code)).toEqual([
         validationIssueCode.union.code,
@@ -75,7 +75,7 @@ test('primitive type', () => {
     ]);
 
     const i = rules.intersection(minLength(1), maxLength(5));
-    const intersection = validate(i, '2222222222');
+    const intersection = parse(i, '2222222222');
     isFalse(intersection.success);
     expect(intersection.error.issues.map(i => i.code)).toEqual([
         'intersection',
@@ -83,13 +83,13 @@ test('primitive type', () => {
     ]);
 
     const i2 = rules.intersection(types.string, minLength(1));
-    const intersection2 = validate(i2, 4);
+    const intersection2 = parse(i2, 4);
     isFalse(intersection2.success);
     expect(intersection2.error.issues.length).toBe(3);
 });
 
-test('model', () => {
-    // Validate models
+test.only('model', () => {
+    // parse models
     const DogModel = types.model({
         name: types.string,
         age: types.number,
@@ -110,7 +110,7 @@ test('model', () => {
         dog: types.maybe(types.reference(DogModel)),
     });
 
-    const result = validate(UserModel, {
+    const result = parse(UserModel, {
         name: 'Kim',
         age: 37,
         interests: '',
@@ -169,7 +169,7 @@ test('Custom Date', () => {
         date: CustomDate,
     });
 
-    const result = validate(DateModel, { date: 2 });
+    const result = parse(DateModel, { date: 2 });
     expect(result.success).toBe(false);
     if (result.success) {
         return;

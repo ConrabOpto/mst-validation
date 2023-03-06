@@ -11,7 +11,7 @@ A validation library for mobx-state-tree.
 ## Intersection type
 
 ```ts
-import { rules, validate } from 'mst-validation';
+import { rules, parse } from 'mst-validation';
 
 const minLength = (min: number) =>
     types.refinement(
@@ -28,7 +28,7 @@ const maxLength = (max: number) =>
 
 const minOneMaxFive = rules.intersection(minLength(1), maxLength(5));
 
-const result = validate(minOneMaxFive, 'a long message');
+const result = parse(minOneMaxFive, 'a long message');
 expect(result.success).toBe(false);
 expect(result.error.issues[0].code).toBe('intersection');
 expect(result.error.issues[1].code).toBe('maxLength');
@@ -36,7 +36,7 @@ expect(result.error.issues[1].code).toBe('maxLength');
 
 ## Debugging
 
-Error messages in mobx-state-tree can sometimes be difficult to read. With `validate` and you get
+Error messages in mobx-state-tree can sometimes be difficult to read. With `parse` and you get
 an object representation of where the errors happened, which can be easier to digest for complex models.
 
 ```ts
@@ -54,14 +54,11 @@ const CatModel = types.model({
 const UserModel = types.model({
     name: validators.name,
     age: validators.age,
-    interests: rules.intersection(
-        types.string,
-        rules.validation(minLength(1), () => 'Not long enough')
-    ),
+    interests: rules.intersection(types.string, minLength(1)),
     animals: types.array(types.union(CatModel, DogModel)),
 });
 
-const { success, issues } = validate(UserModel, {
+const { success, issues } = parse(UserModel, {
     name: 'Kim',
     age: 37,
     interests: 2,
@@ -71,3 +68,4 @@ const { success, issues } = validate(UserModel, {
         { name: 'Eddie', age: 4 },
     ],
 });
+```
